@@ -222,8 +222,19 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUT_DIR, "delivery_vs_reviews.png"), dpi=150)
 plt.close()
 
-plt.figure(figsize=(8, 4.5))
+total_rev = rfm_summary["total_revenue"].sum()
+count_col = next((c for c in ["customers", "customer_count", "unique_customers",
+                              "num_customers", "n_customers"] if c in rfm_summary.columns), None)
+
+plt.figure(figsize=(10, 5))
 plt.barh(rfm_summary["segment"], rfm_summary["total_revenue"] / 1e6, color="#1565C0")
+for i, (_, row) in enumerate(rfm_summary.reset_index(drop=True).iterrows()):
+    rev = row["total_revenue"]
+    label = f"R${rev/1e6:.1f}M ({rev/total_rev:.0%})"
+    if count_col:
+        label += f" | n={int(row[count_col]):,}"
+    plt.text(rev / 1e6 + 0.05, i, label, va="center", fontsize=9)
+plt.xlim(0, rfm_summary["total_revenue"].max() / 1e6 * 1.5)
 plt.xlabel("Total Revenue (Millions BRL)")
 plt.title("Revenue Contribution by Customer RFM Segment")
 plt.gca().invert_yaxis()
@@ -240,5 +251,47 @@ with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
     results["02_category_revenue_delivery.sql"].to_excel(writer, sheet_name="Top_Categories", index=False)
     results["03_high_sales_poor_sellers.sql"].to_excel(writer, sheet_name="Seller_Risk_Rank", index=False)
 
+    # 6. Delay buckets vs. review score
+delay_query = """
+WITH order_reviews AS (
+    SELECT order_id, AVG(review_score) AS score
+    FROM reviews
+    GROUP BY order_id
+)
+SELECT
+    o.order_id,
+    julianday(o.order_delivered_customer_date) - julianday(o.order_estimated_delivery_date) AS delay_days,
+    r.score
+FROM orders o
+JOIN order_reviews r ON r.order_id = o.order_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+  AND o.order_estimated_delivery_date IS NOT NULL
+"""
+delay_df = pd.read_sql_query(delay_query, conn)
+delay_df["bucket"] = pd.cut(
+    delay_df["delay_days"],
+    bins=[-float("inf"), 0, 3, 7, float("inf")],
+    labels=["On time", "0-3 days late", "3-7 days late", "7+ days late"],
+)
+bucket_summary = (
+    delay_df.groupby("bucket", observed=True)["score"]
+    .agg(avg_score="mean", orders="count")
+    .reset_index()
+)
+print(bucket_summary)
+
+plt.figure(figsize=(9, 5))
+colors = ["#2E7D32", "#F9A825", "#EF6C00", "#C62828"]
+bars = plt.bar(bucket_summary["bucket"].astype(str), bucket_summary["avg_score"], color=colors)
+for bar, avg, n in zip(bars, bucket_summary["avg_score"], bucket_summary["orders"]):
+    plt.text(bar.get_x() + bar.get_width() / 2, avg + 0.06,
+             f"{avg:.2f}\n(n={n:,})", ha="center", fontsize=9)
+plt.ylim(0, 5.4)
+plt.ylabel("Average Review Score (1-5)")
+plt.title("Review Scores Drop Sharply as Delivery Delay Grows")
+plt.tight_layout()
+plt.savefig(os.path.join(OUT_DIR, "delay_buckets_vs_reviews.png"), dpi=150)
+plt.close()
 conn.close()
 print("Done! Generated SQL files, charts, and Excel workbook in /outputs.")
