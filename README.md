@@ -26,6 +26,8 @@ A marketplace wants to know who its customers are, whether they come back, and w
 ## Visuals
 ![Delay vs. review score](outputs/delivery_vs_reviews.png)
 ![Customer segments](outputs/rfm_segment_revenue.png)
+![Review score by delay bucket](outputs/delay_buckets_vs_reviews.png)
+![Revenue by customer segment](outputs/rfm_segment_revenue.png)
 
 ## Skills Demonstrated
 - **SQL:** JOINs, CTEs, GROUP BY, HAVING, date calculations, window functions
